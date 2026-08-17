@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ContributionVerifier v2 submission</title>
+  </head>
+  <body>
+    <main>
+      <h1>ContributionVerifier v2</h1>
+      <p>Studionet submission utility. No transaction is sent automatically.</p>
+
+      <section>
+        <h2>1. Wallet</h2>
+        <button id="connect">Connect Wallet</button>
+        <pre id="wallet">No wallet connected.</pre>
+      </section>
+
+      <section>
+        <h2>2. Preflight</h2>
+        <button id="preflight" disabled>Run Preflight</button>
+        <pre id="preflightResult">Connect a wallet first.</pre>
+      </section>
+
+      <section>
+        <h2>3. Send Contribution</h2>
+        <button id="send" disabled>Send Contribution</button>
+        <pre id="sendResult">Send remains disabled until preflight passes.</pre>
+        <button id="finality" disabled>Check Transaction / Finality</button>
+        <pre id="finalityResult"></pre>
+      </section>
+
+      <section>
+        <h2>4. Read State</h2>
+        <button id="exists" disabled>Read contribution_exists</button>
+        <button id="contribution" disabled>Read get_contribution</button>
+        <pre id="stateResult">Finalize a successful transaction before reading state.</pre>
+      </section>
+
+      <section>
+        <h2>5. Verify Contribution</h2>
+        <button id="verifyPreflight" disabled>Run Verify Preflight</button>
+        <pre id="verifyPreflightResult">Connect a wallet first.</pre>
+        <button id="verify" disabled>Verify Contribution</button>
+        <pre id="verifyResult">Verify remains disabled until its read-only checks pass.</pre>
+        <button id="verifyFinality" disabled>Check Verification Transaction / Finality</button>
+        <pre id="verifyFinalityResult"></pre>
+        <button id="readFinalContribution" disabled>Read Final Contribution</button>
+        <button id="readVerification" disabled>Read Verification</button>
+        <pre id="finalContributionResult"></pre>
+        <pre id="verificationResult"></pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

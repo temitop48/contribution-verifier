@@ -1,0 +1,7 @@
+:root { font-family: system-ui, sans-serif; color: #18202a; background: #f5f7fa; }
+body { margin: 0; }
+main { max-width: 920px; margin: 2rem auto; padding: 0 1rem 3rem; }
+section { background: white; border: 1px solid #d7dee8; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+button { margin: 0.25rem 0.5rem 0.5rem 0; padding: 0.55rem 0.8rem; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+pre { background: #111827; color: #d1fae5; padding: 1rem; overflow: auto; white-space: pre-wrap; word-break: break-word; }

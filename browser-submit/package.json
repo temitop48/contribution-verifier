@@ -1,0 +1,13 @@
+{
+  "name": "contribution-verifier-browser-submit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "genlayer-js": "1.1.8",
+    "vite": "6.2.6"
+  }
+}

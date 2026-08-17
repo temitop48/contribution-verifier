@@ -9,3 +9,6 @@ artifacts/
 dist/
 build/
 *.log
+
+# Node dependencies
+node_modules/
