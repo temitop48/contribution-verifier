@@ -1,141 +1,233 @@
-# ContributionVerifier
+# ContributionVerifier v2
 
-`ContributionVerifier` is a standalone GenLayer Intelligent Contract for
-reviewing whether a submitted Web3 contribution is meaningful. It combines
-public evidence retrieval, nondeterministic AI evaluation, and
-leader-validator consensus before storing an assessment on-chain.
+ContributionVerifier v2 is a standalone GenLayer intelligent contract for
+multi-evidence contribution adjudication. It accepts a claim and one to five
+public URLs, normalizes each item independently, aggregates the findings, and
+stores only the result accepted by leader-validator consensus.
 
-## 1. What it does
+## 1. Problem
 
-A contributor submits a title, description, public evidence URL, and
-contribution category. The contract stores the submission, then evaluates the
-claim against the fetched evidence. The resulting assessment contains:
+A contribution claim is rarely established by one link. A reviewer may need a
+repository, pull request, deployment, documentation page, or research record
+to determine whether work is accessible, relevant, substantive, and meaningful.
+
+## 2. Why v1 was insufficient
+
+v1 fetched one URL and passed it to one generic judgment prompt. It stored a
+leader-selected raw score and accepted a validator score within ten points:
+`abs(leader_score - validator_score) <= 10`. That made the stored numeric score
+not fully consensus-bound and did not provide evidence-level normalization or
+aggregation.
+
+## 3. v2 architecture
+
+`submit_contribution` stores a claim with one to five URLs and status
+`SUBMITTED`. `verify_contribution` snapshots the claim, then runs the same
+nondeterministic pipeline for leader and validator:
+
+1. Fetch every URL independently.
+2. Normalize every accessible item into a small structured finding.
+3. Aggregate the findings into a contribution assessment.
+4. Compare material outputs under exact consensus.
+5. Write state only after consensus succeeds.
+
+## 4. Multi-evidence input
+
+The API is:
+
+```python
+submit_contribution(
+    contribution_id,
+    title,
+    description,
+    evidence_urls,       # list[str], 1–5 unique http(s) URLs
+    contribution_type,   # technical, documentation, research, education,
+                         # community, tooling, or integration
+)
+```
+
+URLs are intentionally provider-neutral: repositories, pull requests, issues,
+documentation, deployments/explorers, research, education, and community
+pages are all supported.
+
+## 5. Evidence normalization
+
+Each URL is fetched with `gl.nondet.web.request`. An accessible item is sent to
+an evidence-specific normalization prompt. The normalized finding has exactly:
+
+```json
+{
+  "url": "https://example.com/project/pull/7",
+  "accessible": true,
+  "relevant": true,
+  "supports_claim": true,
+  "evidence_type": "pull_request",
+  "finding": "A reviewed change adds the claimed behavior and tests."
+}
+```
+
+HTTP failures and fetch exceptions become an explicit inaccessible finding;
+they never count as supporting evidence. URL identity, flags, type, and finding
+text are validated before aggregation.
+
+## 6. Evidence aggregation
+
+The aggregate prompt receives normalized findings, not a concatenated URL list.
+It considers technical substance, claim relevance, evidence quality,
+significance/impact, and meaningfulness or originality where applicable. The
+contract independently derives `verified_evidence_count` as the number of
+findings that are both accessible and materially supportive. If none qualify,
+the contract deterministically returns an invalid `INSUFFICIENT` assessment.
+
+## 7. Material score buckets
+
+The canonical score is a consensus-bound bucket, not a leader-selected raw
+score with tolerance:
+
+| Bucket | Meaning |
+| --- | --- |
+| `INSUFFICIENT` | 0–19 |
+| `LOW` | 20–39 |
+| `MODERATE` | 40–59 |
+| `STRONG` | 60–79 |
+| `EXCEPTIONAL` | 80–100 |
+
+No raw numeric score is stored. The model may reason about the ranges, but the
+bucket is the material score output.
+
+## 8. GenLayer consensus design
+
+The leader and validator each execute the complete URL-fetch, per-item
+normalization, and aggregate-evaluation pipeline. The validator does not trust
+the leader's findings or assessment and does not merely check formatting.
+Before comparison it validates the leader payload, its exact fields, types,
+category, bucket, findings, and counts.
+
+All storage values needed by both nondeterministic closures are copied into
+local variables before `gl.vm.run_nondet`; mutable contract storage is not read
+inside either callback. Final storage writes happen only after the call returns
+successfully.
+
+## 9. Exact fields bound by consensus
+
+The exact material assessment fields are:
 
 ```json
 {
   "valid": true,
-  "score": 86,
   "category": "technical",
-  "reason": "The public evidence supports a meaningful technical contribution."
+  "score_bucket": "STRONG",
+  "verified_evidence_count": 2,
+  "total_evidence_count": 3,
+  "reason": "Two accessible findings materially support the claim."
 }
 ```
 
-## 2. Problem
+Consensus requires exact equality for `valid`, `category`, `score_bucket`, and
+both evidence counts. It also requires the total count to equal the submitted
+URL count. This removes the v1 ten-point score tolerance entirely.
 
-Web3 contribution claims are difficult to review consistently. A title and
-link do not necessarily show that work is real, relevant, or meaningful.
-ContributionVerifier provides a small, auditable verification primitive that
-keeps the claim and its consensus-backed assessment separate.
+## 10. Why explanation text may differ
 
-## 3. Contract architecture
+`reason` must be a non-empty string and is stored as supporting explanation.
+It is intentionally not compared byte-for-byte because equivalent independent
+reviewers may phrase the same adjudication differently. The decision, bucket,
+category, and counts—not prose wording—are the canonical consensus outputs.
 
-The contract has two storage maps:
+## 11. State/lifecycle
 
-- `contributions`: submitted claims and their status.
-- `verifications`: the final consensus-backed assessment.
+Contributions move through the simple lifecycle `SUBMITTED` → `VERIFIED` or
+`REJECTED`. A verification stores the canonical assessment plus normalized
+findings as supporting audit data. There are no tokens, rewards, appeals, or
+frontend components.
 
-The main methods are `submit_contribution`, `verify_contribution`,
-`get_contribution`, `get_verification`, `contribution_exists`, and
-`verification_exists`.
+## 12. Example contribution
 
-## 4. Supported contribution categories
-
-`technical`, `documentation`, `research`, `education`, `community`,
-`tooling`, and `integration`.
-
-## 5. Nondeterministic evidence fetching
-
-During evaluation, the contract uses `gl.nondet.web.request` to fetch the
-submitted HTTP(S) evidence URL. The response body, together with the claim,
-is passed to `gl.nondet.exec_prompt`, which must return JSON with exactly
-`valid`, `score`, `category`, and `reason`.
-
-Inaccessible or uninterpretable evidence should result in `valid: false` and
-score `0`. The contract validates the returned structure before it can be
-stored.
-
-## 6. How AI evaluation works
-
-The AI evaluates the strength of the evidence relative to the submitted
-claim. `valid` indicates whether the evidence supports a meaningful
-contribution; `score` is an integer from 0 to 100; `category` must match the
-submitted category; and `reason` explains the decision. The contract does not
-award tokens or reputation.
-
-## 7. GenLayer leader-validator consensus
-
-`verify_contribution` calls `gl.vm.run_nondet`. The leader performs the web
-fetch and AI evaluation. Validators independently repeat that evaluation and
-vote on whether the leader result is equivalent. Only the agreed result is
-written to storage. This is genuine GenLayer nondeterministic execution, not
-a deterministic contract with AI terminology added around it.
-
-## 8. Validator equivalence rules
-
-Before comparison, the validator requires the leader result to be a JSON
-object with exactly the expected fields and valid types/ranges. It then
-requires:
-
-- `valid` must agree.
-- `category` must agree and match the submitted category.
-- The absolute score difference must be at most 10.
-- Explanations may differ; exact reason-text equality is not required.
-
-Malformed JSON, missing or extra fields, boolean scores, scores outside
-0–100, unsupported categories, mismatched categories, and empty reasons are
-rejected.
-
-## 9. State stored by the contract
-
-Each contribution stores its ID, contributor address, title, description,
-evidence URL, category, and status (`SUBMITTED`, `VERIFIED`, or `REJECTED`).
-Each verification stores its contribution ID, validity, score, category, and
-reason.
-
-## 10. Local lint and test instructions
-
-Create a virtual environment and install the pinned requirements:
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
+```json
+{
+  "contribution_id": "wallet-connector-001",
+  "title": "Improve wallet connector",
+  "description": "Adds support for a commonly used Web3 wallet.",
+  "evidence_urls": [
+    "https://github.com/example/project/pull/7",
+    "https://docs.example.org/wallet-connector",
+    "https://explorer.example.org/tx/0xabc"
+  ],
+  "contribution_type": "technical"
+}
 ```
 
-Run the quick static checks:
+## 13. Example normalized evidence
+
+```json
+[
+  {
+    "url": "https://github.com/example/project/pull/7",
+    "accessible": true,
+    "relevant": true,
+    "supports_claim": true,
+    "evidence_type": "pull_request",
+    "finding": "The change adds the connector implementation and tests."
+  },
+  {
+    "url": "https://explorer.example.org/tx/0xabc",
+    "accessible": false,
+    "relevant": false,
+    "supports_claim": false,
+    "evidence_type": "other",
+    "finding": "The public URL was not accessible."
+  }
+]
+```
+
+## 14. Example final adjudication
+
+```json
+{
+  "valid": true,
+  "category": "technical",
+  "score_bucket": "STRONG",
+  "verified_evidence_count": 2,
+  "total_evidence_count": 3,
+  "reason": "Two accessible findings establish a substantive, relevant change."
+}
+```
+
+## 15. Testing
+
+The suite covers URL cardinality and format, unsupported categories,
+duplicates, malformed assessment and finding schemas, invalid buckets and
+counts, exact bucket/validity/category consensus, allowed reason differences,
+inaccessible evidence, mixed evidence, and all-inaccessible evidence. Mocked
+GenVM tests use `mock_web` and `mock_llm`; they do not fake deployment or model
+consensus output.
 
 ```bash
 python -m py_compile contracts/contribution_verifier.py
 genvm-lint contracts/contribution_verifier.py
-```
-
-Run the focused mocked GenVM tests:
-
-```bash
+pytest --collect-only -q test/test_contribution_verifier.py
 gltest -q test/test_contribution_verifier.py
 ```
 
-These tests do not require a live AI provider. For a real deployment, use
-GenLayer Studio or the configured Studionet network and call
-`submit_contribution` followed by `verify_contribution`.
+## 16. Deployment
 
-## 11. Studionet deployment evidence
+Deploy the current source as a fresh Studionet contract, then exercise
+`submit_contribution` and `verify_contribution` against that new address.
+Deployment evidence must match this v2 source and its multi-evidence API.
 
-The contract was deployed and exercised on GenLayer Studionet without
-modifying the contract afterward.
+## 17. Historical v1 deployment
 
-- Network: **GenLayer Studionet**
-- Contract: `0xd8730Bfaf1818587260bd83885d01C0ad228787C`
-- Positive contribution ID: `studionet-demo-technical-002`
-- Evidence URL: `https://raw.githubusercontent.com/ethereum/ethereum-org-website/dev/README.md`
-- Submission transaction: `0x56859ad84d56262f5b7ae8f8eb2fcfe8f1ce45142b004a507dd8ff07b56fa84f`
-- Verification transaction: `0xec9864a59e5d2fe682b25f776280db9eda47ba6fd7db27792e4c3d7719c85715`
-- Consensus: `ACCEPTED / MAJORITY_AGREE`
-- Assessment: `valid: true`, `score: 86`, `category: technical`
+The previous v1 deployment at
+`0xd8730Bfaf1818587260bd83885d01C0ad228787C` is historical only. It is not
+evidence of this v2 implementation and must not be reused as v2 deployment
+proof.
 
-The contract also rejected an earlier submission whose evidence URL returned
-HTTP 404. That result was stored as invalid with score 0, demonstrating that
-the verifier does not blindly approve inaccessible evidence.
+## 18. v2 deployment placeholder
+
+**Studionet v2 contract:** to be filled after a fresh deployment of this exact
+source.
+
+**Deployment and verification transactions:** to be filled after deployment.
 
 ## License
 
